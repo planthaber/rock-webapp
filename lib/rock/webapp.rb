@@ -16,6 +16,7 @@ module Rock
     module WebApp
         LIB_DIR = File.expand_path(File.dirname(__FILE__))
         UI_DIR  = File.join(LIB_DIR, 'webapp', 'ui')
+        UI_ADDON_DIR = File.join(ENV['AUTOPROJ_CURRENT_ROOT'], 'install', 'webapp', 'ui')
 
         extend Logger::Root('Rock::WebApp', Logger::WARN)
 
