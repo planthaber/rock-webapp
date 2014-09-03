@@ -1,5 +1,73 @@
 module Rock
     module WebApp
+
+        def self.install_port_writer_clean_loop(period = 5)
+            @port_writer_clean_loop_timer ||=
+                EM.add_periodic_timer period do
+                    PortWriters::clean()
+                end
+        end
+        
+        class PortWriters
+            require 'thread'
+            @writers = {}
+            @mutex = Mutex.new
+                    
+            class PortWriterEntry
+                @writer = nil
+                @timestamp = nil
+                @lifetime_s = nil; 
+                @port = nil
+                
+                def initialize(port, lifetime_seconds)
+                    @timestamp = Time.now().to_i
+                    @lifetime_s = lifetime_seconds
+                    @writer = port.writer
+                    @port = port
+                end
+                
+                def write(obj)
+                    @timestamp = Time.now().to_i
+                    @writer.write(obj)
+                end
+                
+                def expired?
+                    #puts "unused #{(Time.now().to_i - @timestamp)}"
+                    (Time.now().to_i - @timestamp) > @lifetime_s
+                end
+                
+            end
+        
+            def self.addWriter(port, name_service, name, port_name, lifetime_seconds)
+                puts "added writer with #{lifetime_seconds} timeout"
+                entry = PortWriterEntry.new(port, lifetime_seconds)
+                @mutex.synchronize do
+                    @writers[name_service+name+port_name] = entry
+                end
+                #puts "add writer size: #{@writers.length}"
+                entry
+            end
+            
+            def self.getWriter(name_service, name, port_name )
+                writer = nil
+                @mutex.synchronize do
+                    writer = @writers[name_service+name+port_name]
+                end
+                #puts "get writer size: #{@writers.length}"
+                writer
+            end
+            
+            #cleans the references to the writer objects
+            def self.clean()
+                @mutex.synchronize do
+                    @writers.delete_if do |key,elem|
+                        elem.expired?
+                    end
+                end
+                #puts "writer size: #{@writers.length}"
+            end
+        end 
+        
         class Tasks < Grape::API
             version 'v1', using: :header, vendor: :rock
             format :json
@@ -114,17 +182,27 @@ module Rock
                         error! "did not get any sample from #{params[:name]}.#{params[:port_name]} in #{params[:timeout]} seconds", 408
                     end
                 end
+                
+                desc "write a value to a port"
+                params do
+                    optional :timeout, type: Integer, default: 30
+                end
                 post ':name_service/:name/ports/:port_name/write' do
-                    port = port_by_task_and_name(*params.values_at('name_service', 'name', 'port_name')).to_async
-               
-                    if !port.respond_to?(:writer)
-                            error! "#{port.name} is an output port, cannot write" , 403
+                    writer = PortWriters::getWriter(*params.values_at('name_service', 'name', 'port_name'))
+                    if writer == nil
+                        port = port_by_task_and_name(*params.values_at('name_service', 'name', 'port_name')).to_async
+                        if !port.respond_to?(:writer)
+                                error! "#{port.name} is an output port, cannot write" , 403
+                        end 
+                        writer = PortWriters::addWriter(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
                     end
+
                     begin
                         obj = MultiJson.load(request.params["value"])
                     rescue MultiJson::ParseError => exception
                         error! "malformed JSON string", 415
                     end 
+
                     begin
                         port.writer.write(obj)
                     rescue Typelib::UnknownConversionRequested => exception
