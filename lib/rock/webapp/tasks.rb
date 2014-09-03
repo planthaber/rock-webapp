@@ -14,11 +14,7 @@ module Rock
             @mutex = Mutex.new
                     
             class PortWriterEntry
-                @writer = nil
-                @timestamp = nil
-                @lifetime_s = nil; 
-                @port = nil
-                
+               
                 def initialize(port, lifetime_seconds)
                     @timestamp = Time.now().to_i
                     @lifetime_s = lifetime_seconds
