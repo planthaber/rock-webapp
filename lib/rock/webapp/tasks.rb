@@ -4,15 +4,18 @@ module Rock
         def self.install_port_writer_clean_loop(period = 5)
             @port_writer_clean_loop_timer ||=
                 EM.add_periodic_timer period do
-                    PortWriters.clean
+                    Tasks.cleanPortWriters
                 end
         end
         
         class PortWriters
-            @writers = {}
+            
+            def initialize
+                @writers = {} 
+            end
                     
             class PortWriterEntry
-               
+                            
                 def initialize(port, lifetime_seconds)
                     @timestamp = Time.now().to_i
                     @lifetime_s = lifetime_seconds
@@ -26,13 +29,13 @@ module Rock
                 end
                 
                 def expired?
-                    #puts "unused #{(Time.now().to_i - @timestamp)}"
+                    puts "unused #{(Time.now().to_i - @timestamp)}"
                     (Time.now().to_i - @timestamp) > @lifetime_s
                 end
                 
             end
         
-            def self.addWriter(port, name_service, name, port_name, lifetime_seconds)
+            def add(port, name_service, name, port_name, lifetime_seconds)
                 #puts "added writer with #{lifetime_seconds} timeout"
                 entry = PortWriterEntry.new(port, lifetime_seconds)
                 @writers[name_service+name+port_name] = entry
@@ -40,13 +43,13 @@ module Rock
                 entry
             end
             
-            def self.getWriter(name_service, name, port_name )
+            def get(name_service, name, port_name )
                 @writers[name_service+name+port_name]
                 #puts "get writer size: #{@writers.length}"
             end
             
             #cleans the references to the writer objects
-            def self.clean()
+            def clean
                 @writers.delete_if do |key,elem|
                     elem.expired?
                 end
@@ -58,6 +61,22 @@ module Rock
             version 'v1', using: :header, vendor: :rock
             format :json
 
+            
+            @portWriters = Rock::WebApp::PortWriters.new
+            
+            def self.cleanPortWriters()
+                @portWriters.clean
+            end
+            
+            def self.get_port_writer(name_service, name, port_name)
+                @portWriters.get(name_service, name, port_name )
+            end
+            
+            def self.add_port_writer(port, name_service, name, port_name, lifetime_seconds)
+                @portWriters.add(port, name_service, name, port_name, lifetime_seconds)
+            end
+                        
+            
             def self.stream_async_data_to_websocket(env, data_source, count = Float::INFINITY)
                 emitted_samples = 0
 
@@ -174,13 +193,13 @@ module Rock
                     optional :timeout, type: Integer, default: 30
                 end
                 post ':name_service/:name/ports/:port_name/write' do
-                    writer = PortWriters.getWriter(*params.values_at('name_service', 'name', 'port_name'))
+                    writer = Tasks.get_port_writer(*params.values_at('name_service', 'name', 'port_name'))
                     if writer == nil
                         port = port_by_task_and_name(*params.values_at('name_service', 'name', 'port_name')).to_async
                         if !port.respond_to?(:writer)
                                 error! "#{port.name} is an output port, cannot write" , 403
                         end 
-                        writer = PortWriters.addWriter(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
+                        writer = Tasks.add_port_writer(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
                     end
 
                     begin
