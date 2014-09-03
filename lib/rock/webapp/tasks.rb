@@ -212,6 +212,9 @@ module Rock
                         port.writer.write(obj)
                     rescue Typelib::UnknownConversionRequested => exception
                         error! "port type mismatch", 406
+                    rescue Exception => ex
+                        #puts ex
+                        error! "unable to write to port", 404
                     end     
                 end
             end
