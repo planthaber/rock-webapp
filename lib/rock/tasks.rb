@@ -1,6 +1,6 @@
 module Rock
     module WebApp
-        class Tasks < Grape::API
+        class TasksAPI < Grape::API
             version 'v1', using: :header, vendor: :rock
             format :json
 

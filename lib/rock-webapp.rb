@@ -22,7 +22,7 @@ module Rock
             class Root < Grape::API
                 version 'v1'
     
-                mount Tasks
+                mount TasksAPI
             end
         end
     end
