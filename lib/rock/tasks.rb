@@ -187,19 +187,23 @@ module Rock
                         error! "did not get any sample from #{params[:name]}.#{params[:port_name]} in #{params[:timeout]} seconds", 408
                     end
                 end
-                
+                    
                 desc "write a value to a port"
                 params do
                     optional :timeout, type: Integer, default: 30
                 end
                 post ':name_service/:name/ports/:port_name/write' do
-                    writer = Tasks.get_port_writer(*params.values_at('name_service', 'name', 'port_name'))
-                    if writer == nil
-                        port = port_by_task_and_name(*params.values_at('name_service', 'name', 'port_name')).to_async
+                    
+                    writer = Tasks.portWriters.get(*params.values_at('name_service', 'name', 'port_name'))
+                    if !writer
+                        port = port_by_task_and_name(*params.values_at('name_service', 'name', 'port_name'))
+                        if !port
+                            error! "#{port.name} is currently not available" , 404
+                        end
                         if !port.respond_to?(:writer)
                                 error! "#{port.name} is an output port, cannot write" , 403
                         end 
-                        writer = Tasks.add_port_writer(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
+                        writer = Tasks.portWriters.add(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
                     end
 
                     begin
@@ -207,14 +211,14 @@ module Rock
                     rescue MultiJson::ParseError => exception
                         error! "malformed JSON string", 415
                     end 
-
+                                         
                     begin
-                        port.writer.write(obj)
+                        writer.write(obj)
                     rescue Typelib::UnknownConversionRequested => exception
                         error! "port type mismatch", 406
                     rescue Exception => ex
                         #puts ex
-                        error! "unable to write to port", 404
+                        error! "unable to write to port #{ex}", 404
                     end     
                 end
             end
