@@ -16,3 +16,16 @@ rock-webapp
 
 The REST API is under /api/ and the UI under /ui/
 
+
+== taskmanager
+
+The taskmanager is under /ui/taskmanager.html
+
+
+== Tips
+
+To get used to the api and return values in JSON, you may install a JSONview addon in your browser
+
+Chrome: https://chrome.google.com/webstore/detail/jsonview/chklaanhfefbnpoihckbnefhakgolnmc
+Fielfox: https://addons.mozilla.org/de/firefox/addon/jsonview/
+
