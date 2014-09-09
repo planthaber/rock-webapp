@@ -4,7 +4,7 @@ require 'eventmachine'
 require 'rack'
 require 'thin'
 require 'orocos'
-require 'rock/webapp'
+require 'rock-webapp'
 require 'rack/static'
 
 thin_host = '0.0.0.0'
@@ -33,15 +33,19 @@ Orocos.initialize
 
 Faye::WebSocket.load_adapter('thin')
 thin = Rack::Handler.get('thin')
-EM.next_tick { Rock::WebApp.install_event_loop }
-
+EM.next_tick { Rock::WebApp::Tasks.install_event_loop }
+    
 app = Rack::Builder.new do
     map '/ui' do
-        run Rack::Directory.new(Rock::WebApp::UI_DIR)
+        run Rack::Directory.new(Rock::WebApp::Tasks::UI_DIR)
     end
+    map '/ui/common' do
+        run Rack::Directory.new(Rock::WebApp::COMMON_UI_DIR)
+    end
+    
     if defined? Rock::WebApp::UI_CUSTOM_DIR
         map '/ui/custom' do
-            run Rack::Directory.new(Rock::WebApp::UI_CUSTOM_DIR)
+            run Rack::Directory.new(Rock::WebApp::Tasks::UI_CUSTOM_DIR)
         end
     end
     map '/api' do
@@ -54,7 +58,7 @@ app = Rack::Builder.new do
                 end
             end
         end
-        run Rock::WebApp::Root
+        run Rock::WebApp::Tasks::Root
     end
 end
 thin.run(app, Host: thin_host, Port: thin_port)

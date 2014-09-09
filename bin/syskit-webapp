@@ -1,0 +1,69 @@
+#! /usr/bin/env ruby
+
+require 'eventmachine'
+require 'rack'
+require 'thin'
+require 'orocos'
+require 'syskit-webapp'
+require 'rack/static'
+
+
+thin_host = '0.0.0.0'
+thin_port = 9293
+syskit_url = 'localhost'
+cors_hosts = []
+
+options = OptionParser.new do |opt|
+    opt.on('--host host', String, 'the host of the name server that should be contacted (default to localhost)') do |host|
+        syskit_url = host
+    end
+    opt.on('--bind host', String, 'the host the server should bind to (default to 0.0.0.0)') do |host|
+        thin_host = host
+    end
+    opt.on('--port port', Integer, "the server's port (default to #{thin_port})") do |port|
+        thin_port = port
+    end
+    opt.on('--enable-cors hosts', Array, "enables Cross-Origin Resource Sharing for sites loaded from the parameter may include localhost host:port, file://. Also multiple values seperated by ','") do |host|
+        cors_hosts = host
+    end
+end
+options.parse ARGV
+
+
+Faye::WebSocket.load_adapter('thin')
+thin = Rack::Handler.get('thin')
+EM.next_tick { Rock::WebApp::Syskit.install_event_loop }
+
+
+app = Rack::Builder.new do
+    
+    map '/ui' do
+        puts Rock::WebApp::Syskit::UI_DIR
+        run Rack::Directory.new(Rock::WebApp::Syskit::UI_DIR)
+    end
+    
+    map '/ui/common' do
+        run Rack::Directory.new(Rock::WebApp::COMMON_UI_DIR)
+    end
+    
+    map '/api' do
+        puts "thin"
+        if !cors_hosts.empty?
+            require 'rack/cors'
+            use Rack::Cors do
+                allow do
+                    origins(*cors_hosts)
+                    resource '*', headers: :any, methods: [:get, :post]
+                end
+            end
+        end
+        run Rock::WebApp::Syskit::Root
+    end
+end
+thin.run(app, Host: thin_host, Port: thin_port)
+
+
+
+
+
+

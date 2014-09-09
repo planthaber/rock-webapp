@@ -19,4 +19,7 @@
   <!-- gems required for testing. They are commented out as we don't want
          everyone to install them -->
   <!-- gem install rack-test flexmock minitest-em-sync -->
+  
+  <depend package="tools/roby" optional="1"/>
+  
 </package>
