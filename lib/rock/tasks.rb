@@ -1,50 +1,53 @@
 module Rock
     module WebApp
-
+        
         def self.install_port_writer_clean_loop(period = 5)
             @port_writer_clean_loop_timer ||=
                 EM.add_periodic_timer period do
-                    Tasks.cleanPortWriters
+                    Tasks.port_writers.clean
                 end
         end
+        
+        class PortWriters
             
-            class PortWriters
+            def initialize
+                @writers = {} 
+            end
+                    
+            class PortWriterEntry
+                            
+                def initialize(port, lifetime_seconds)
+                    @timestamp = Time.now().to_i
+                    @lifetime_s = lifetime_seconds
+                    @writer = port.writer
+                    @port = port
+                end
                 
-                def initialize
-                    @writers = {} 
-                end
-                        
-                class PortWriterEntry
-                                
-                    def initialize(port, lifetime_seconds)
+                def write(obj, timeout)
+                    if self.connected?
+                        if timeout > @lifetime_s
+                            @lifetime_s = timeout
+                        end
                         @timestamp = Time.now().to_i
-                        @lifetime_s = lifetime_seconds
-                        @writer = port.writer
-                        @port = port
+                        @writer.write(obj)
                     end
-                    
-                    def write(obj)
-                        if self.connected?
-                            @timestamp = Time.now().to_i
-                            @writer.write(obj)
-                        end
-                    end
-                    
-                    def connected?
-                        if @writer.connected?
-                            return true
-                        else
-                            @lifetime_s = 0
-                            return false
-                        end
-                    end
-                    
-                    def expired?
-                        #puts "unused #{(Time.now().to_i - @timestamp)}"
-                        (Time.now().to_i - @timestamp) > @lifetime_s
-                    end
- 
                 end
+                
+                def connected?
+                    if @writer.connected?
+                        return true
+                    else
+                        @lifetime_s = 0
+                        return false
+                    end
+                end
+                
+                def expired?
+                    #puts "unused #{(Time.now().to_i - @timestamp)}"
+                    (Time.now().to_i - @timestamp) > @lifetime_s
+                end
+                
+            end
         
             def add(port, name_service, name, port_name, lifetime_seconds)
                 #puts "added writer with #{lifetime_seconds} timeout"
@@ -54,7 +57,6 @@ module Rock
                 entry
             end
             
-
             def get(name_service, name, port_name )
                 writer = @writers[name_service+name+port_name]
                 if writer && writer.connected?
@@ -73,25 +75,19 @@ module Rock
             end
         end 
         
+        
         class Tasks < Grape::API
             version 'v1', using: :header, vendor: :rock
             format :json
 
             
-            @portWriters = Rock::WebApp::PortWriters.new
-            
-            def self.cleanPortWriters()
-                @portWriters.clean
+            @port_writers_storage = PortWriters.new
+
+            #public getter, it seems like the grape mount command
+            #pulls the resource blocks out of this class, but we need access
+            def self.port_writers
+                @port_writers_storage
             end
-            
-            def self.get_port_writer(name_service, name, port_name)
-                @portWriters.get(name_service, name, port_name )
-            end
-            
-            def self.add_port_writer(port, name_service, name, port_name, lifetime_seconds)
-                @portWriters.add(port, name_service, name, port_name, lifetime_seconds)
-            end
-                        
             
             def self.stream_async_data_to_websocket(env, data_source, count = Float::INFINITY)
                 emitted_samples = 0
@@ -100,7 +96,7 @@ module Rock
                 ws = Faye::WebSocket.new(env)
 
                 listener = data_source.on_raw_data do |sample|
-                    if !ws.send(MultiJson.dump(sample.to_json_value(:special_float_values => :string)))
+                    if !ws.send(MultiJson.dump(Hash[:value => sample.to_json_value(:special_float_values => :string)]))
                         WebApp.warn "failed to send, closing connection"
                         ws.close
                         listener.stop
@@ -151,6 +147,23 @@ module Rock
                 get ':name_service/:name' do
                     Hash[task: task_by_name(params[:name_service], params[:name]).to_h]
                 end
+                
+                desc "returns information about the properties of a given task"
+                get ':name_service/:name/properties' do
+                    taskhash = Hash[task_by_name(params[:name_service], params[:name]).to_h]
+                    model = taskhash[:model]
+                    Hash[properties: model[:properties]]
+                end
+                                
+                desc "returns information about the given port"
+                get ':name_service/:name/properties/:property_name/read' do
+                    task = task_by_name(params[:name_service], params[:name])
+                    prop = task.property(params[:property_name])
+                    puts prop.raw_read_new.pretty_inspect
+                    #puts prop.to_h
+                    Hash[value: prop.raw_read.to_json_value(:special_float_values => :string)]
+                end
+
 
                 desc "Lists all ports of the task"
                 get ':name_service/:name/ports' do
@@ -203,23 +216,20 @@ module Rock
                         error! "did not get any sample from #{params[:name]}.#{params[:port_name]} in #{params[:timeout]} seconds", 408
                     end
                 end
-                    
+                
                 desc "write a value to a port"
                 params do
                     optional :timeout, type: Integer, default: 30
                 end
                 post ':name_service/:name/ports/:port_name/write' do
                     
-                    writer = Tasks.portWriters.get(*params.values_at('name_service', 'name', 'port_name'))
+                    writer = Tasks.port_writers.get(*params.values_at('name_service', 'name', 'port_name'))
                     if !writer
                         port = port_by_task_and_name(*params.values_at('name_service', 'name', 'port_name'))
-                        if !port
-                            error! "#{port.name} is currently not available" , 404
-                        end
                         if !port.respond_to?(:writer)
                                 error! "#{port.name} is an output port, cannot write" , 403
                         end 
-                        writer = Tasks.portWriters.add(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
+                        writer = Tasks.port_writers.add(port, *params.values_at('name_service', 'name', 'port_name'),params[:timeout])
                     end
 
                     begin
@@ -229,7 +239,7 @@ module Rock
                     end 
                                          
                     begin
-                        writer.write(obj)
+                        writer.write(obj,params[:timeout])
                     rescue Typelib::UnknownConversionRequested => exception
                         error! "port type mismatch", 406
                     rescue Exception => ex
@@ -237,6 +247,12 @@ module Rock
                         error! "unable to write to port #{ex}", 404
                     end     
                 end
+                
+                # way to add binary
+                #https://github.com/intridea/grape/issues/412
+                #get ':name_service/:name/ports/:port_name/read/binary' params : path in type
+                #get ':name_service/:name/ports/:port_name/read/image' params : path in type 
+                
             end
         end
     end
