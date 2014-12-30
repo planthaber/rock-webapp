@@ -26,8 +26,11 @@ begin
     # If you need to deviate from the defaults, check utilrb's Rakefile as an example
 
     Rake.clear_tasks(/^default$/)
-    task :default => []
+    task :default => [:js]
     task :doc => :yard
+    task :js do
+        `sh create_min_js.sh`
+    end
 
 rescue LoadError => e
     puts "Extension for '#{package_name}' cannot be build -- loading gem failed: #{e}"
