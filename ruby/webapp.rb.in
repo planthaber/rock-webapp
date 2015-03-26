@@ -1,0 +1,11 @@
+plugin_path = "@CMAKE_SOURCE_DIR@/public" 
+
+#map index page
+map '/' do
+    run Rack::File.new( File.join(plugin_path, 'index.html') )
+end
+
+#map all uis
+map '/ui' do
+    run Rack::Directory.new( File.join( plugin_path, 'ui' ) )
+end
